@@ -346,6 +346,114 @@ def cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
     return dot_product / (norm_a * norm_b)
 
 
+# ========== Cross-Encoder Reranker ==========
+
+@dataclass
+class RerankResult:
+    """重排序结果"""
+    index: int
+    relevance_score: float
+    text: str
+
+
+class DashScopeReranker:
+    """
+    DashScope Cross-Encoder 重排序器
+    模型：gte-rerank（原生 DashScope Rerank API）
+
+    Cross-Encoder 比 Bi-Encoder（Embedding）精度更高，
+    因为它同时考虑 query 和 document 的交互关系。
+    用于对初步检索结果做精排，通常可提升 20-30% 精度。
+
+    API 端点（原生格式）：
+    POST https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+    """
+
+    def __init__(self, api_key: str, model: str = "gte-rerank"):
+        self.api_key = api_key
+        self.model = model
+        # 注意：使用原生 DashScope API 而非 compatible-mode
+        self.endpoint = (
+            "https://dashscope.aliyuncs.com/"
+            "api/v1/services/rerank/text-rerank/text-rerank"
+        )
+        self._healthy = True
+        self._last_error_time = 0
+
+    @property
+    def is_available(self) -> bool:
+        if not self.api_key:
+            return False
+        if not self._healthy:
+            if time.time() - self._last_error_time > 60:
+                self._healthy = True
+            else:
+                return False
+        return True
+
+    def rerank(self, query: str, documents: List[str],
+               top_n: int = None) -> List[RerankResult]:
+        """
+        对文档列表进行重排序
+
+        Args:
+            query: 查询文本
+            documents: 待排序文档列表
+            top_n: 返回前 N 个结果（默认全部）
+
+        Returns:
+            按相关性降序排列的 RerankResult 列表
+        """
+        if not documents:
+            return []
+
+        # 原生 DashScope Rerank 请求格式
+        payload = json.dumps({
+            "model": self.model,
+            "input": {
+                "query": query,
+                "documents": documents
+            },
+            "parameters": {
+                "top_n": top_n or len(documents)
+            }
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            self.endpoint,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            },
+            method="POST"
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            results = []
+            # 原生格式返回：{"output": {"results": [{"index": N, "relevance_score": F}]}}
+            for item in data.get("output", {}).get("results", []):
+                idx = item["index"]
+                results.append(RerankResult(
+                    index=idx,
+                    relevance_score=item["relevance_score"],
+                    text=documents[idx]
+                ))
+
+            results.sort(key=lambda x: x.relevance_score, reverse=True)
+            self._healthy = True
+            return results
+
+        except Exception as e:
+            self._healthy = False
+            self._last_error_time = time.time()
+            raise RuntimeError(f"[Rerank] 重排序失败: {e}")
+
+
+
 # ========== 测试入口 ==========
 
 if __name__ == "__main__":
@@ -380,6 +488,28 @@ if __name__ == "__main__":
     sim_13 = cosine_similarity(result.vectors[0], result.vectors[2])
     print(f"  '代码风格' vs '编程规范': {sim_12:.4f} (应该高)")
     print(f"  '代码风格' vs '天气出游': {sim_13:.4f} (应该低)")
+
+    # 测试 Reranker
+    print("\n📝 测试 3: Cross-Encoder 重排序")
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    ds_key = cfg.get("providers", {}).get("dashscope", {}).get("api_key", "")
+    if ds_key and not ds_key.startswith("YOUR_"):
+        reranker = DashScopeReranker(api_key=ds_key)
+        docs = [
+            "今天天气很好",
+            "Python是最流行的编程语言",
+            "编程规范要求代码简洁明了",
+            "我昨天买了水果"
+        ]
+        try:
+            rr = reranker.rerank("代码风格", docs)
+            for r in rr:
+                print(f"  [{r.relevance_score:.4f}] {r.text}")
+        except Exception as e:
+            print(f"  ⚠️ Rerank 测试失败: {e}")
+    else:
+        print("  ⚠️ 跳过（需要 DashScope API Key）")
 
     # 状态
     print("\n📊 状态:")
