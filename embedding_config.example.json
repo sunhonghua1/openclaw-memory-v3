@@ -1,0 +1,22 @@
+{
+    "primary": "dashscope",
+    "providers": {
+        "dashscope": {
+            "model": "text-embedding-v4",
+            "api_key": "YOUR_DASHSCOPE_API_KEY",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "dimensions": 1024
+        },
+        "google": {
+            "model": "gemini-embedding-001",
+            "api_key": "YOUR_GOOGLE_API_KEY",
+            "dimensions": 768
+        },
+        "jina": {
+            "model": "jina-embeddings-v3",
+            "api_key": "YOUR_JINA_API_KEY",
+            "base_url": "https://api.jina.ai/v1",
+            "dimensions": 1024
+        }
+    }
+}

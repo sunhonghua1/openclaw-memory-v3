@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# 配置文件（包含 API Key，绝对不能提交！）
+embedding_config.json
+
+# 记忆数据
+*.json
+!embedding_config.example.json
+!package.json
+!skill.json
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
